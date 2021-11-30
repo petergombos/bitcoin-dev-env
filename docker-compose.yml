@@ -1,33 +1,36 @@
 version: "3.9"
 services:
-  node:
-    build: ./regtest-server
+  bitcoind:
+    image: junderw/bitcoinjs-regtest-server
     ports:
       - 8080:8080
+      - 8332:8332
       - 18443:18443
       - 30001:30001
-      - 8333:8333
-      - 8332:8332
-  electrumx:
-    image: lukechilds/electrumx:latest
-    depends_on:
-      - node
+    volumes:
+      - ./docker/datadir:/root/.bitcoin
+  electrs:
+    build: ./docker/electrs
     ports:
-      - "51001:50001"
-      - "51002:50002"
-    environment:
-      - NET=regtest
-      - COIN=BitcoinSegwit
-      - DAEMON_URL=http://terra:hash@node:18443
-  explorer:
-    image: ulamlabs/btc-rpc-explorer:latest
+      - 3000:3000
+    volumes:
+      - ./docker/datadir:/data/.bitcoin:ro
+      - ./docker/electrs/data:/data/db
     depends_on:
-      - node
-      - electrumx
+      - bitcoind
+    command:
+      [
+        "-vvvv",
+        "--network", "regtest",
+        "--db-dir", "/data/db",
+        "--daemon-rpc-addr", "bitcoind:18443",
+        "--http-addr", "electrs:3000",
+        "--cors", "*"
+      ]
+  esplora:
+    build: ./docker/esplora
     ports:
-      - "3002:3002"
-    environment:
-      - BTCEXP_HOST=0.0.0.0
-      - BTCEXP_BITCOIND_URI=http://terra:hash@node:18443
-      - BTCEXP_ELECTRUMX_SERVERS=tls://electrumx:50002
-      - BTCEXP_ADDRESS_API=electrumx
+      - 3333:8080
+    depends_on:
+      - bitcoind
+      - electrs
