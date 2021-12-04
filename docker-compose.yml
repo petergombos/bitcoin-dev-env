@@ -1,14 +1,15 @@
 version: "3.9"
 services:
   bitcoind:
-    image: junderw/bitcoinjs-regtest-server
+    image: lncm/bitcoind:v22.0
     ports:
-      - 8080:8080
-      - 8332:8332
-      - 18443:18443
-      - 30001:30001
+      - 8332:8332 
+      - 8333:8333 
+      - 18443:18443 
+      - 28332:28332 
+      - 28333:28333
     volumes:
-      - ./docker/datadir:/root/.bitcoin
+      - ./docker/datadir:/data/.bitcoin
   electrs:
     build: ./docker/electrs
     ports:
