@@ -1,4 +1,9 @@
 {
+  "license": "MIT",
+  "scripts": {
+    "wallet:init": "./init-wallet.sh",
+    "start": "yarn wallet:init && node src/index.js"
+  },
   "dependencies": {
     "bitcoinjs-lib": "^5.2.0",
     "regtest-client": "^0.2.0",

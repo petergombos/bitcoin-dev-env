@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   bitcoind:
-    image: lncm/bitcoind:v22.0
+    build: ./docker/bitcoind
     ports:
       - 8332:8332 
       - 8333:8333 
@@ -9,11 +9,6 @@ services:
       - 28332:28332 
     volumes:
       - ./docker/datadir:/data/.bitcoin
-    command:
-      [
-        "-zmqpubhashblock=tcp://*:28332",
-        "-zmqpubhashtx=tcp://*:28332"
-      ]
   electrs:
     build: ./docker/electrs
     ports:

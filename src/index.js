@@ -1,5 +1,5 @@
 const bitcoin = require("bitcoinjs-lib");
-const { alice, bob, carol } = require("./wallets.json");
+const { alice, bob } = require("./wallets.json");
 const { RegtestUtils } = require("regtest-client");
 const zmq = require("zeromq");
 const regtestUtils = new RegtestUtils({
@@ -9,27 +9,44 @@ const network = bitcoin.networks.regtest;
 
 const keyPairAlice1 = bitcoin.ECPair.fromWIF(alice[1].wif, network);
 
-const p2wpkhAlice1 = bitcoin.payments.p2wpkh({
-  pubkey: keyPairAlice1.publicKey,
-  network,
-});
+function getPayment(output) {
+  let payment;
+  Object.keys(bitcoin.payments).find((type) => {
+    try {
+      payment = bitcoin.payments[type]({ output: output.script, network });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  });
+  return payment;
+}
 
 async function main() {
   sock = zmq.socket("sub");
   sock.connect("tcp://127.0.0.1:28332");
-  sock.subscribe("hashtx");
+  sock.subscribe("rawtx");
   sock.on("message", function (topic, message) {
-    console.log("ZMQ");
-    console.log(topic.toString(), message.toString("hex"));
+    const tx = bitcoin.Transaction.fromHex(message);
+
+    tx.outs.forEach((output) => {
+      const p = getPayment(output);
+      console.log({
+        txid: tx.getId(),
+        address: p.address,
+        amount: output.value,
+      });
+    });
   });
 
-  await regtestUtils.mine(1);
-  const { txId, value } = await regtestUtils.faucet(alice[1].p2wpkh, 1e8);
+  const { txId, value, vout } = await regtestUtils.faucet(alice[1].p2wpkh, 1e8);
+  const output = value / 2 - 1000;
+  const change = value / 2;
 
   const psbt = new bitcoin.Psbt({ network });
   await psbt.addInput({
     hash: txId,
-    index: 0,
+    index: vout,
     witnessUtxo: {
       script: Buffer.from("0014" + alice[1].pubKeyHash, "hex"),
       value,
@@ -37,11 +54,11 @@ async function main() {
   });
   await psbt.addOutput({
     address: bob[1].p2pkh,
-    value: value / 2 - 1000,
+    value: output,
   });
   await psbt.addOutput({
     address: alice[1].p2wpkh,
-    value: value / 2,
+    value: change,
   });
   psbt.signInput(0, keyPairAlice1);
   psbt.validateSignaturesOfInput(0);
@@ -50,7 +67,6 @@ async function main() {
   const tx = psbt.extractTransaction().toHex();
   console.log(tx);
   await regtestUtils.broadcast(tx);
-  await regtestUtils.mine(1);
 }
 
 main().catch(console.error);
