@@ -1,6 +1,7 @@
 const bitcoin = require("bitcoinjs-lib");
-const { alice, bob } = require("./wallets.json");
+const { alice, bob, carol } = require("./wallets.json");
 const { RegtestUtils } = require("regtest-client");
+const zmq = require("zeromq");
 const regtestUtils = new RegtestUtils({
   bitcoin,
 });
@@ -14,23 +15,34 @@ const p2wpkhAlice1 = bitcoin.payments.p2wpkh({
 });
 
 async function main() {
+  sock = zmq.socket("sub");
+  sock.connect("tcp://127.0.0.1:28332");
+  sock.subscribe("hashtx");
+  sock.on("message", function (topic, message) {
+    console.log("ZMQ");
+    console.log(topic.toString(), message.toString("hex"));
+  });
+
+  await regtestUtils.mine(1);
+  const { txId, value } = await regtestUtils.faucet(alice[1].p2wpkh, 1e8);
+
   const psbt = new bitcoin.Psbt({ network });
   await psbt.addInput({
-    hash: "b27a1ca7df882c88144cafa482163b1e587ab2f31805cc419b084361e5fcd8bd",
+    hash: txId,
     index: 0,
     witnessUtxo: {
       script: Buffer.from("0014" + alice[1].pubKeyHash, "hex"),
-      value: 50e8,
+      value,
     },
   });
   await psbt.addOutput({
     address: bob[1].p2pkh,
-    value: 50e8 - 1000,
+    value: value / 2 - 1000,
   });
-  // await psbt.addOutput({
-  //   address: alice[1].p2wpkh,
-  //   value: 12e8 - 1000,
-  // });
+  await psbt.addOutput({
+    address: alice[1].p2wpkh,
+    value: value / 2,
+  });
   psbt.signInput(0, keyPairAlice1);
   psbt.validateSignaturesOfInput(0);
   psbt.finalizeAllInputs();
@@ -38,7 +50,7 @@ async function main() {
   const tx = psbt.extractTransaction().toHex();
   console.log(tx);
   await regtestUtils.broadcast(tx);
-  await regtestUtils.mine(6);
+  await regtestUtils.mine(1);
 }
 
 main().catch(console.error);

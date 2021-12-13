@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "bitcoinjs-lib": "^5.2.0",
-    "regtest-client": "^0.2.0"
+    "regtest-client": "^0.2.0",
+    "zeromq": "5"
   }
 }

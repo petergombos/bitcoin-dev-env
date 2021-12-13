@@ -7,9 +7,13 @@ services:
       - 8333:8333 
       - 18443:18443 
       - 28332:28332 
-      - 28333:28333
     volumes:
       - ./docker/datadir:/data/.bitcoin
+    command:
+      [
+        "-zmqpubhashblock=tcp://*:28332",
+        "-zmqpubhashtx=tcp://*:28332"
+      ]
   electrs:
     build: ./docker/electrs
     ports:
@@ -35,3 +39,11 @@ services:
     depends_on:
       - bitcoind
       - electrs
+  regtest-server:
+    build: ./docker/regtest-server
+    ports:
+      - 8080:8080
+    volumes:
+      - ./docker/datadir:/root/.bitcoin:ro
+    depends_on:
+      - bitcoind
