@@ -1,8 +1,8 @@
 const bitcoin = require("bitcoinjs-lib");
-const { bob } = require("./wallets.json");
-const { RegtestUtils } = require("regtest-client");
+const { carol } = require("./wallets.json");
 const zmq = require("zeromq");
 const Wallet = require("./wallet");
+const { RegtestUtils } = require("regtest-client");
 const regtestUtils = new RegtestUtils({
   bitcoin,
 });
@@ -29,8 +29,6 @@ function getPayment(output) {
 }
 
 async function main() {
-  regtestUtils.mine(100);
-
   sock = zmq.socket("sub");
   sock.connect("tcp://127.0.0.1:28332");
   sock.subscribe("rawtx");
@@ -47,35 +45,13 @@ async function main() {
     });
   });
 
-  const { txId, value, vout } = await regtestUtils.faucet(wallet.address, 1e8);
-  const output = value / 2 - 1000;
-  const change = value / 2;
+  setInterval(() => {
+    regtestUtils.mine(1);
+  }, 10 * 1000);
 
-  const psbt = new bitcoin.Psbt({ network });
+  // await regtestUtils.faucet(wallet.address, 10e8);
 
-  await psbt.addInput({
-    hash: txId,
-    index: vout,
-    witnessUtxo: {
-      script: Buffer.from("0014" + wallet.pubKeyHash.toString("hex"), "hex"),
-      value,
-    },
-  });
-  await psbt.addOutput({
-    address: bob[1].p2pkh,
-    value: output,
-  });
-  await psbt.addOutput({
-    address: wallet.address,
-    value: change,
-  });
-  psbt.signInput(0, wallet.ECPair);
-  psbt.validateSignaturesOfInput(0);
-  psbt.finalizeAllInputs();
-  console.log("Transaction hexadecimal:");
-  const tx = psbt.extractTransaction().toHex();
-  console.log(tx);
-  await regtestUtils.broadcast(tx);
+  await wallet.send(carol[1].p2pkh, 0.1);
 }
 
 main().catch(console.error);

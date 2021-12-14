@@ -4,13 +4,22 @@ const bitcoin = require("bitcoinjs-lib");
 const ecc = require("tiny-secp256k1");
 const createHash = require("create-hash");
 
+const { RegtestUtils } = require("regtest-client");
+const regtestUtils = new RegtestUtils({
+  bitcoin,
+});
+
 const bip32 = BIP32Factory(ecc);
 
-async function api(endpoint) {
-  const fetch = (await import("node-fetch")).default;
-  const response = await fetch(`http://localhost:3000${endpoint}`);
+async function fetch(endpoint) {
+  const fetcher = (await import("node-fetch")).default;
+  const response = await fetcher(endpoint);
   const json = await response.json();
   return json;
+}
+
+function api(endpoint) {
+  return fetch(`http://localhost:3000${endpoint}`);
 }
 
 class Wallet {
@@ -53,9 +62,78 @@ class Wallet {
     const { chain_stats } = await api(`/address/${this.address}`);
     this.balance = chain_stats.funded_txo_sum - chain_stats.spent_txo_sum;
 
-    // Transactions
-    const txs = await api(`/address/${this.address}/txs`);
-    this.txs = txs;
+    // UTXOs
+    const utxos = await api(`/address/${this.address}/utxo`);
+    this.utxos = utxos;
+  }
+
+  getFeesEstimate() {
+    return fetch("https://blockstream.info/api/fee-estimates");
+  }
+
+  async send(to, amount) {
+    await this.sync();
+    const psbt = new bitcoin.Psbt({ network: this.network });
+
+    let balance = 0;
+    let inputCount = 0;
+
+    // Add inputs
+    const confirmedUTXOs = this.utxos.filter(
+      (utxo) => utxo.status.confirmed === true
+    );
+    for (const utxo of confirmedUTXOs) {
+      await psbt.addInput({
+        hash: utxo.txid,
+        index: utxo.vout,
+        witnessUtxo: {
+          script: Buffer.from("0014" + this.pubKeyHash.toString("hex"), "hex"),
+          value: utxo.value,
+        },
+      });
+
+      balance += utxo.value;
+      inputCount++;
+    }
+
+    const amountInSat = Math.round(amount * 100000000);
+
+    if (balance < amountInSat) {
+      throw new Error("Not enough funds");
+    }
+    // Estimates transaction size in weight units, needs to be divided by 4 to assess actual vBytes in most cases.
+    // https://bitcoin.stackexchange.com/questions/95926/why-is-a-minrelaytxfee-of-1000-sat-kb-not-equivalent-to-250-sat-kw/95927#95927
+    const txSize = inputCount * 180 + 2 * 34 + 10 + inputCount;
+    const targetFees = await this.getFeesEstimate();
+    const txfee = Math.round(txSize * (targetFees[1] / 4));
+
+    const transferOutput = amountInSat - txfee;
+    const changeOutput = balance - amountInSat;
+
+    await psbt.addOutput({
+      address: to,
+      value: transferOutput,
+    });
+
+    if (changeOutput > 0) {
+      await psbt.addOutput({
+        address: this.address,
+        value: changeOutput,
+      });
+    }
+
+    for (let i = 0; i < inputCount; i++) {
+      psbt.signInput(i, this.ECPair);
+      psbt.validateSignaturesOfInput(i);
+    }
+
+    psbt.finalizeAllInputs();
+
+    const tx = psbt.extractTransaction().toHex();
+
+    await regtestUtils.broadcast(tx); // TODO: add support for testnet and mainnet
+
+    return tx;
   }
 }
 
@@ -73,4 +151,4 @@ async function main() {
   console.log(wallet.balance);
 }
 
-main();
+// main();
