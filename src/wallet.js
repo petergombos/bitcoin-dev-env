@@ -27,6 +27,9 @@ class Wallet {
     return bip39.generateMnemonic();
   }
 
+  balance = 0;
+  utxos = [];
+
   constructor({ mnemonic, path = "m/44'/0'/0'/0/0", network }) {
     this.mnemonic = mnemonic;
     this.network = network || bitcoin.networks.bitcoin;
@@ -64,25 +67,62 @@ class Wallet {
 
     // UTXOs
     const utxos = await api(`/address/${this.address}/utxo`);
-    this.utxos = utxos;
+    this.utxos = utxos.filter((utxo) => utxo.status.confirmed === true);
   }
 
   getFeesEstimate() {
-    return fetch("https://blockstream.info/api/fee-estimates");
+    return api("/fee-estimates");
+  }
+
+  getUTXOsForTransaction(amount, availableUTXOs = [], selectedUTXOs = []) {
+    const ascOrderedUTXOs = [...availableUTXOs].sort(
+      (a, b) => a.value - b.value
+    );
+
+    const graterThanEqualUTXO = ascOrderedUTXOs.find(
+      (utxo) => utxo.value >= amount
+    );
+    if (graterThanEqualUTXO) {
+      return [...selectedUTXOs, graterThanEqualUTXO];
+    }
+
+    const largestAvailableUTXO = ascOrderedUTXOs[ascOrderedUTXOs.length - 1];
+
+    const newSelectedUTXOs = [...selectedUTXOs, largestAvailableUTXO];
+    const newAvailableUTXOs = availableUTXOs.filter(
+      (utxo) =>
+        !(
+          utxo.txid === largestAvailableUTXO.txid &&
+          utxo.vout === largestAvailableUTXO.vout
+        )
+    );
+
+    return this.getUTXOsForTransaction(
+      amount - largestAvailableUTXO.value,
+      newAvailableUTXOs,
+      newSelectedUTXOs
+    );
   }
 
   async send(to, amount) {
     await this.sync();
+
+    // Convert to sats
+    const amountInSat = Math.round(amount * 100000000);
+
+    // Block payment if amount is greater than balance
+    if (this.balance < amountInSat) {
+      throw new Error("Not enough funds");
+    }
+
     const psbt = new bitcoin.Psbt({ network: this.network });
 
     let balance = 0;
     let inputCount = 0;
 
     // Add inputs
-    const confirmedUTXOs = this.utxos.filter(
-      (utxo) => utxo.status.confirmed === true
-    );
-    for (const utxo of confirmedUTXOs) {
+    const utxos = this.getUTXOsForTransaction(amountInSat, this.utxos);
+    for (const utxo of utxos) {
       await psbt.addInput({
         hash: utxo.txid,
         index: utxo.vout,
@@ -96,16 +136,15 @@ class Wallet {
       inputCount++;
     }
 
-    const amountInSat = Math.round(amount * 100000000);
-
-    if (balance < amountInSat) {
-      throw new Error("Not enough funds");
-    }
     // Estimates transaction size in weight units, needs to be divided by 4 to assess actual vBytes in most cases.
     // https://bitcoin.stackexchange.com/questions/95926/why-is-a-minrelaytxfee-of-1000-sat-kb-not-equivalent-to-250-sat-kw/95927#95927
     const txSize = inputCount * 180 + 2 * 34 + 10 + inputCount;
     const targetFees = await this.getFeesEstimate();
-    const txfee = Math.round(txSize * (targetFees[1] / 4));
+    let txfee = Math.round(txSize * (targetFees[1] / 4));
+    // The minimum fee amount out of the box in Bitcoin Core, since 0.9, is 1000 sats
+    if (txfee < 1000) {
+      txfee = 1000;
+    }
 
     const transferOutput = amountInSat - txfee;
     const changeOutput = balance - amountInSat;
