@@ -62,12 +62,13 @@ class Wallet {
 
   async sync() {
     // Balance
-    const { chain_stats } = await api(`/address/${this.address}`);
-    this.balance = chain_stats.funded_txo_sum - chain_stats.spent_txo_sum;
 
     // UTXOs
     const utxos = await api(`/address/${this.address}/utxo`);
     this.utxos = utxos.filter((utxo) => utxo.status.confirmed === true);
+
+    // Balance
+    this.balance = this.utxos.reduce((acc, utxo) => acc + utxo.value, 0);
   }
 
   getFeesEstimate() {
@@ -142,10 +143,10 @@ class Wallet {
     const targetFees = await this.getFeesEstimate();
     let txfee = Math.round(txSize * (targetFees[1] / 4));
     // The minimum fee amount out of the box in Bitcoin Core, since 0.9, is 1000 sats
-    if (txfee < 1000) {
+    if (!txfee || txfee < 1000) {
       txfee = 1000;
     }
-
+    console.log({ amountInSat, txfee });
     const transferOutput = amountInSat - txfee;
     const changeOutput = balance - amountInSat;
 

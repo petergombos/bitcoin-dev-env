@@ -64,8 +64,7 @@ async function main() {
   }
 
   // Send some money to carol
-  // TODO: wallet bug when not enough funds are there because some funds are pending
-  await wallet.send(carol[1].p2pkh, 10.525);
+  await wallet.send(carol[1].p2pkh, 1);
 }
 
 main().catch(console.error);
